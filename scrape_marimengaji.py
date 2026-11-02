@@ -45,17 +45,31 @@ def scrape_cards():
     from playwright.sync_api import sync_playwright
     with sync_playwright() as p:
         b = p.chromium.launch()
-        page = b.new_page(locale="id-ID")
-        page.goto(f"{BASE}/kajian/cari", wait_until="networkidle", timeout=60000)
+        ctx = b.new_context(
+            locale="id-ID",
+            user_agent="Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0 Safari/537.36")
+        page = ctx.new_page()
+        page.set_default_timeout(90000)
+        # jangan tunggu "networkidle" (website tidak pernah benar-benar diam); cukup tunggu kartu kajian muncul
+        page.goto(f"{BASE}/kajian/cari", wait_until="domcontentloaded", timeout=90000)
+        try:
+            page.wait_for_selector('h3 a[href*="/s/"]', timeout=90000)
+        except Exception:
+            print("JUDUL HALAMAN:", page.title())
+            print("ISI HALAMAN (awal):", page.inner_text("body")[:600].replace("\n", " | "))
+            raise
         for _ in range(60):                       # klik "Tampilkan Lebih Banyak" sampai habis
             btn = page.get_by_text(re.compile(r"Tampilkan Lebih Banyak"))
             if btn.count() == 0 or not btn.first.is_visible():
                 break
             before = page.locator('h3 a[href*="/s/"]').count()
             btn.first.click()
-            page.wait_for_function(
-                "n => document.querySelectorAll('h3 a[href*=\"/s/\"]').length > n",
-                arg=before, timeout=15000)
+            try:
+                page.wait_for_function(
+                    "n => document.querySelectorAll('h3 a[href*=\"/s/\"]').length > n",
+                    arg=before, timeout=20000)
+            except Exception:
+                break
         cards = page.evaluate(JS_CARDS)
         if DEBUG:
             d = OUT / "debug"; d.mkdir(exist_ok=True)
